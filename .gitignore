@@ -1,0 +1,15 @@
+# Dependency directories
+**/node_modules/
+
+# Build/Dist directories (auto-created)
+**/dist/
+**/build/
+**/out/
+
+# Environment variables (highly sensitive!)
+**/.env
+**/.env.local
+
+# OS-specific files
+.DS_Store
+Thumbs.db

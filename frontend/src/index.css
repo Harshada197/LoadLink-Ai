@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Nunito:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #07090f;
+  --surface: rgba(255,255,255,0.04);
+  --border: rgba(255,255,255,0.08);
+  --cyan: #00e5ff;
+  --amber: #ffb800;
+  --green: #00e676;
+  --red: #ff4d6d;
+  --violet: #a78bfa;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: #eef2ff;
+  font-family: 'Nunito', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.font-syne { font-family: 'Syne', sans-serif; }
+.font-mono { font-family: 'DM Mono', monospace; }
+
+/* Ambient grid bg */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
+  background-size: 52px 52px;
+}
+
+/* Glow effects */
+.glow-cyan  { box-shadow: 0 0 30px rgba(0,229,255,0.15); }
+.glow-green { box-shadow: 0 0 30px rgba(0,230,118,0.15); }
+.glow-red   { box-shadow: 0 0 30px rgba(255,77,109,0.15); }
+
+/* Glass card */
+.glass {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(16px);
+}
+
+/* Fade-in animation */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes scan-line {
+  from { top: 0%; }
+  to   { top: 100%; }
+}
