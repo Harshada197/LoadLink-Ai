@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 from flask_cors import CORS
 import cv2
 import numpy as np
@@ -32,18 +32,12 @@ CORS(app)
 # Load YOLO model
 model = YOLO("yolov8n.pt")
 
-# Use correct camera index (0 or 1)
-cap = cv2.VideoCapture(0)
+cap = None
 
 container_capacity = 20
 
-# ───────────── DATA API (YOLO DETECTION) ─────────────
-@app.route('/data')
-def get_data():
-    ret, frame = cap.read()
-    if not ret:
-        return jsonify({"error": "Camera not working"})
-
+# ───────────── CORE ML FRAME PROCESSOR ─────────────
+def process_frame(frame):
     results = model(frame)
 
     # 1. Barcode decoding
@@ -68,7 +62,6 @@ def get_data():
                 "width_cm": nW,
                 "height_cm": nH
             })
-
 
     boxes = results[0].boxes
     names = model.names
@@ -110,8 +103,6 @@ def get_data():
             volume = 3
 
         total_volume += volume
-
-        # Convert to a stable name for sizing
         object_name = "box" if raw_object_name in ["suitcase", "refrigerator"] else raw_object_name
 
         detected.append({
@@ -126,18 +117,52 @@ def get_data():
 
     efficiency = (total_volume / container_capacity) * 100
 
-    return jsonify({
+    return {
         "volume": total_volume,
         "efficiency": round(efficiency, 2),
         "objects": detected,
         "barcodes": detected_barcodes,
         "a4_measurements": a4_measurements
-    })
+    }
+
+# ───────────── DATA API (YOLO DETECTION) ─────────────
+@app.route('/data')
+def get_data():
+    global cap
+    if cap is None or not cap.isOpened():
+        return jsonify({ "error": "Camera offline", "volume": 0, "efficiency": 0, "objects": [], "barcodes": [], "a4_measurements": [] })
+
+    ret, frame = cap.read()
+    if not ret:
+        return jsonify({ "error": "Camera read failed", "volume": 0, "efficiency": 0, "objects": [], "barcodes": [], "a4_measurements": [] })
+        
+    payload = process_frame(frame)
+    return jsonify(payload)
+
+# ───────────── UPLOAD STATIC IMAGE API ─────────────
+@app.route('/upload', methods=['POST'])
+def upload_data():
+    if 'image' not in request.files:
+        return jsonify({"error": "No image provided"}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+        
+    # Read the image blob securely into an OpenCV multidimensional array
+    img_array = np.frombuffer(file.read(), np.uint8)
+    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    
+    if frame is None:
+        return jsonify({"error": "Corrupt image processing constraint"}), 400
+        
+    payload = process_frame(frame)
+    return jsonify(payload)
 
 
 # ───────────── VIDEO STREAM (CAMERA FEED) ─────────────
 def generate_frames():
-    while True:
+    global cap
+    while cap is not None and cap.isOpened():
         success, frame = cap.read()
         if not success:
             break
@@ -148,11 +173,28 @@ def generate_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-
 @app.route('/video')
 def video():
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    global cap
+    if cap is None or not cap.isOpened():
+        return Response("Camera offline", status=400)
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# ───────────── CAMERA HARDWARE CONTROL ─────────────
+@app.route('/camera/start', methods=['POST'])
+def start_camera():
+    global cap
+    if cap is None or not cap.isOpened():
+        cap = cv2.VideoCapture(0)
+    return jsonify({"status": "started"})
+
+@app.route('/camera/stop', methods=['POST'])
+def stop_camera():
+    global cap
+    if cap is not None:
+        cap.release()
+        cap = None
+    return jsonify({"status": "stopped"})
 
 
 # ───────────── RUN SERVER ─────────────

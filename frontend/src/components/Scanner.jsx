@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
-import { detectDeadspace, fetchMetrics } from "../services/api";
+import { detectDeadspace, fetchMetrics, uploadImage } from "../services/api";
 
 const SEVERITY_COLOR = { low:"#00e676", medium:"#ffb800", high:"#ff4d6d", critical:"#ff4d6d", success:"#00e5ff" };
 
@@ -8,8 +8,10 @@ export default function Scanner() {
   const { setScanResult, setLoading, isLoading, addAlert } = useStore();
   const [result, setResult] = useState(null);
   const [liveMode, setLiveMode] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState(null);
   const [toggles, setToggles] = useState({ scan: true, grid: false, heat: false });
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
   const animRef = useRef(null);
   const frameRef = useRef(0);
   const busy = isLoading("scan");
@@ -132,9 +134,9 @@ export default function Scanner() {
     return () => cancelAnimationFrame(animRef.current);
   }, [liveMode, toggles, drawFrame]);
 
-  const performYoloScan = async (isManual = false) => {
+  const performYoloScan = async (isManual = false, fileObj = null) => {
       try {
-         const res = await fetchMetrics();
+         const res = fileObj ? await uploadImage(fileObj) : await fetchMetrics();
          const yoloData = res.data;
          const issues = [];
          
@@ -245,7 +247,7 @@ export default function Scanner() {
       if (liveMode) {
          await performYoloScan(true);
       } else {
-         // Simulate deadspace detection if not live
+         // Simulate deadspace detection if not live nor uploaded
          const res = await detectDeadspace({ frameIndex: frameRef.current });
          setResult(res.scan);
          setScanResult(res.scan);
@@ -256,6 +258,27 @@ export default function Scanner() {
     } finally {
       setLoading("scan", false);
     }
+  };
+
+  const handleFileUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      // Kill live camera hardware explicitly if we jump to offline stream
+      if (liveMode) {
+          try { await fetch("http://127.0.0.1:5000/camera/stop", { method: "POST" }); } catch(err){}
+          setLiveMode(false);
+      }
+      
+      setUploadedImage(URL.createObjectURL(file));
+      setLoading("scan", true);
+      try {
+          await performYoloScan(true, file);
+      } catch (err) {
+          alert("Image analysis encountered an error: " + err.message);
+      } finally {
+          setLoading("scan", false);
+      }
   };
 
   const toggle = (k) => setToggles((t) => ({ ...t, [k]: !t[k] }));
@@ -277,16 +300,18 @@ export default function Scanner() {
             {/* Feed topbar */}
             <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3"
               style={{ background: "linear-gradient(to bottom,rgba(0,0,0,0.8),transparent)" }}>
-              <div className="flex items-center gap-2 font-mono text-xs" style={{ color: liveMode ? "#ff4d6d" : "#ffb800" }}>
-                <span className="w-2 h-2 rounded-full pulse-dot" style={{ background: liveMode ? "#ff4d6d" : "#ffb800" }} />
-                {liveMode ? "YOLOv8 LIVE" : "PAUSED"} · 1920×1080
+              <div className="flex items-center gap-2 font-mono text-xs" style={{ color: uploadedImage ? "#00e5ff" : liveMode ? "#ff4d6d" : "#ffb800" }}>
+                <span className="w-2 h-2 rounded-full pulse-dot" style={{ background: uploadedImage ? "#00e5ff" : liveMode ? "#ff4d6d" : "#ffb800" }} />
+                {uploadedImage ? "STATIC BLOB ANALYSIS" : liveMode ? "YOLOv8 LIVE" : "PAUSED"} · {uploadedImage ? "JPEG/PNG" : "1920×1080"}
               </div>
               <div className="font-mono text-xs" style={{ color: "rgba(238,242,255,0.3)" }}>
-                {liveMode ? "AI DIMENSION CAPTURE" : `FRAME #${frameRef.current}`}
+                {uploadedImage ? "OFFLINE IMAGE SCAN" : liveMode ? "AI DIMENSION CAPTURE" : `FRAME #${frameRef.current}`}
               </div>
             </div>
             
-            {liveMode ? (
+            {uploadedImage ? (
+               <img src={uploadedImage} alt="Uploaded Image Offline" className="w-full object-cover relative z-0" style={{ height: 320, display: "block" }} />
+            ) : liveMode ? (
                <img src="http://127.0.0.1:5000/video" alt="YOLOv8 Live Stream" className="w-full object-cover relative z-0" style={{ height: 320, display: "block" }} />
             ) : (
                <canvas ref={canvasRef} width={560} height={320} style={{ width: "100%", display: "block", filter: "opacity(0.6)" }} />
@@ -300,7 +325,23 @@ export default function Scanner() {
 
           {/* Controls */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={() => setLiveMode((l) => !l)}
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" style={{ display: 'none' }} />
+            <button onClick={() => fileInputRef.current.click()} disabled={busy}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all"
+              style={{ background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", color: "#a78bfa" }}>
+              ⬆ Upload
+            </button>
+            <button onClick={async () => {
+                const toggled = !liveMode;
+                try {
+                    if (toggled) await fetch("http://127.0.0.1:5000/camera/start", { method: "POST" });
+                    else await fetch("http://127.0.0.1:5000/camera/stop", { method: "POST" });
+                } catch (e) {
+                    console.error("Camera hw error", e);
+                }
+                setLiveMode(toggled);
+                if (toggled) setUploadedImage(null);
+            }}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all"
               style={{ background: liveMode ? "rgba(255,77,109,0.15)" : "rgba(0,230,118,0.12)",
                 border: `1px solid ${liveMode ? "rgba(255,77,109,0.3)" : "rgba(0,230,118,0.3)"}`,

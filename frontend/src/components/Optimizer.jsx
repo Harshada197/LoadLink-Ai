@@ -279,7 +279,7 @@ export default function Optimizer() {
             <div className="flex gap-2 overflow-x-auto pb-4 mb-2 custom-scrollbar">
               {[...Array(numContainers)].map((_, i) => (
                 <button key={i} onClick={() => setActiveContainerIndex(i)}
-                  className={`px-3 py-2 rounded-xl text-[10px] whitespace-nowrap transition-all border font-bold ${activeContainerIndex === i ? "bg-violet-400 text-black border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.3)]" : "bg-white/5 text-white/40 border-white/5 hover:border-white/20"}`}>
+                  className={`px-3 py-2 rounded-xl text-[10px] whitespace-nowrap transition-all border font-bold ${activeContainerIndex === i ? "bg-violet-500 text-white border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.3)]" : "bg-white/5 text-white/40 border-white/5 hover:border-white/20"}`}>
                   CONT {i+1}
                 </button>
               ))}
@@ -332,19 +332,19 @@ export default function Optimizer() {
               <span>Quick Add</span>
               <select onChange={(e) => setNewPkg(STANDARD_BOXES[e.target.value])} className="bg-transparent border-none text-violet-400 outline-none cursor-pointer">
                 <option value="" disabled>Presets...</option>
-                {STANDARD_BOXES.map((b, i) => <option key={i} value={i}>{b.name}</option>)}
+                {STANDARD_BOXES.map((b, i) => <option key={i} value={i} className="bg-[#0a0d14] text-white">{b.name}</option>)}
               </select>
             </div>
-            <input placeholder="Item Label" value={newPkg.name} onChange={e => setNewPkg({...newPkg, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs outline-none focus:border-violet-400/30 transition-all" />
+            <input placeholder="Item Label" value={newPkg.name} onChange={e => setNewPkg({...newPkg, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-violet-400/30 transition-all" />
             <div className="grid grid-cols-4 gap-2">
               {["width","height","depth","weight"].map(k => (
                 <div key={k} className="space-y-1">
                   <div className="text-[7px] text-white/20 font-bold uppercase">{k}</div>
-                  <input type="number" value={newPkg[k]} onChange={e => setNewPkg({...newPkg, [k]: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-[10px] outline-none font-mono" />
+                  <input type="number" value={newPkg[k]} onChange={e => setNewPkg({...newPkg, [k]: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-[10px] text-white outline-none font-mono" />
                 </div>
               ))}
             </div>
-            <button onClick={addPackage} className="w-full py-3 bg-violet-400 text-black text-[11px] font-black rounded-xl hover:shadow-[0_0_20px_rgba(167,139,250,0.4)] transition-all uppercase tracking-tighter">
+            <button onClick={addPackage} className="w-full py-3 bg-violet-500 text-white text-[11px] font-black rounded-xl hover:shadow-[0_0_20px_rgba(167,139,250,0.4)] transition-all uppercase tracking-tighter">
               Commit To {numContainers > 0 ? `Container ${activeContainerIndex + 1}` : "Truck"}
             </button>
           </div>
