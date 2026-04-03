@@ -2,70 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Nunito:wght@400;500;600;700&display=swap');
-
 :root {
   --bg: #07090f;
-  --surface: rgba(255,255,255,0.04);
+  --bg2: #0c1020;
+  --surface: rgba(255,255,255,0.045);
+  --surface2: rgba(255,255,255,0.08);
   --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
   --cyan: #00e5ff;
   --amber: #ffb800;
   --green: #00e676;
   --red: #ff4d6d;
   --violet: #a78bfa;
+  --orange: #ff7043;
+  --t1: #eef2ff;
+  --t2: rgba(238,242,255,0.55);
+  --t3: rgba(238,242,255,0.28);
+  --t4: rgba(238,242,255,0.12);
+  --r: cubic-bezier(0.16,1,0.3,1);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   background: var(--bg);
-  color: #eef2ff;
+  color: var(--t1);
   font-family: 'Nunito', sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
-::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 
 .font-syne { font-family: 'Syne', sans-serif; }
 .font-mono { font-family: 'DM Mono', monospace; }
 
-/* Ambient grid bg */
-.bg-grid {
-  background-image:
-    linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
-  background-size: 52px 52px;
-}
-
-/* Glow effects */
-.glow-cyan  { box-shadow: 0 0 30px rgba(0,229,255,0.15); }
-.glow-green { box-shadow: 0 0 30px rgba(0,230,118,0.15); }
-.glow-red   { box-shadow: 0 0 30px rgba(255,77,109,0.15); }
-
-/* Glass card */
+/* ── Components ── */
 .glass {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--surface);
+  border: 1px solid var(--border);
   backdrop-filter: blur(16px);
 }
 
-/* Fade-in animation */
+.fade-up { animation: fadeUp 0.5s var(--r) both; }
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fade-up { animation: fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both; }
 
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.2; }
 }
-.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
 
-@keyframes scan-line {
-  from { top: 0%; }
-  to   { top: 100%; }
+/* Truck & Container Cards */
+.card-v2 {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all 0.3s var(--r);
+  text-align: left;
 }
+.card-v2:hover { border-color: rgba(0,229,255,0.3); background: rgba(0,229,255,0.05); }
+.card-v2.selected { border-color: var(--cyan); background: rgba(0,229,255,0.08); box-shadow: 0 0 20px rgba(0,229,255,0.1); }
+
+/* Stats Bar */
+.stats-bar {
+  display: flex;
+  align-items: stretch;
+  background: rgba(7,9,15,0.88);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+.stat-item {
+  flex: 1;
+  padding: 10px 14px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+}
+.stat-item:last-child { border-right: none; }
+
+/* Custom Scrollbar Helper */
+.custom-scrollbar::-webkit-scrollbar { width: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }

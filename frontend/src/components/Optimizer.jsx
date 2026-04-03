@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useStore } from "../store/useStore";
 import { optimizeLoad } from "../services/api";
 import PackingViewer3D from "./PackingViewer3D";
@@ -25,11 +25,13 @@ const STANDARD_BOXES = [
 ];
 
 const TRUCK_DIMENSIONS = {
-  mini: { width: 180, height: 140, depth: 300, maxWeight: 3000 },
-  medium: { width: 220, height: 150, depth: 450, maxWeight: 6000 },
-  large: { width: 240, height: 160, depth: 600, maxWeight: 10000 },
-  jumbo: { width: 260, height: 200, depth: 1200, maxWeight: 24000 },
+  mini: { width: 200, height: 200, depth: 320, maxWeight: 3000 },
+  medium: { width: 230, height: 240, depth: 500, maxWeight: 6000 },
+  large: { width: 245, height: 260, depth: 650, maxWeight: 10000 },
+  jumbo: { width: 250, height: 280, depth: 1300, maxWeight: 24000 },
 };
+
+const CITIES = ["Pune", "Mumbai", "Bangalore", "Delhi", "Hyderabad", "Chennai", "Kolkata", "Ahmedabad", "Nashik", "Surat"];
 
 function EfficiencyBar({ value, color, label }) {
   return (
@@ -47,333 +49,354 @@ function EfficiencyBar({ value, color, label }) {
 }
 
 export default function Optimizer() {
-  const { setPackResult, setCarbonReport, setLoading, isLoading } = useStore();
-  const [container, setContainer] = useState(DEFAULT_CONTAINER);
-  const [packages, setPackages] = useState(DEFAULT_PACKAGES);
-  const [result, setResult] = useState(null);
-  const [options, setOptions] = useState({ truckType: "large", fuelType: "diesel", routeKey: "pune-mumbai" });
+  const { setPackResult, setLoading, isLoading } = useStore();
+  
+  // -- Route --
+  const [route, setRoute] = useState({ source: "Pune", destination: "Mumbai", stops: [] });
+  
+  // -- Truck & Containers --
+  const [truckType, setTruckType] = useState("large");
+  const [numContainers, setNumContainers] = useState(1);
+  const [containerBus, setContainerBus] = useState({ width: 230, height: 230, depth: 580, maxWeight: 5000 });
+  
+  // -- Packages & Selection --
+  const [activeContainerIndex, setActiveContainerIndex] = useState(0);
+  const [packagesData, setPackagesData] = useState({ truck: DEFAULT_PACKAGES }); 
+  
+  const [globalResult, setGlobalResult] = useState(null); // Truck view
+  const [localResult, setLocalResult] = useState(null);   // Selected container view
+  
+  const [options, setOptions] = useState({ fuelType: "diesel" });
   const [newPkg, setNewPkg] = useState(STANDARD_BOXES[0]);
-  const [pkgCount, setPkgCount] = useState(1);
+  
   const busy = isLoading("optimize");
 
-  const handleBoxSelect = (idx) => {
-    setNewPkg({ ...STANDARD_BOXES[idx] });
-  };
+  // Initializing or updating containers when numContainers changes
+  useEffect(() => {
+    if (numContainers > 0) {
+      setPackagesData(prev => {
+        const newData = { ...prev };
+        for (let i = 0; i < numContainers; i++) {
+          if (!newData[i]) newData[i] = [];
+        }
+        return newData;
+      });
+    } else {
+       setActiveContainerIndex(0);
+    }
+  }, [numContainers]);
+
+  const addStop = () => setRoute(r => ({ ...r, stops: [...r.stops, ""] }));
+  const updateStop = (val, idx) => setRoute(r => {
+    const s = [...r.stops];
+    s[idx] = val;
+    return { ...r, stops: s };
+  });
+  const removeStop = (idx) => setRoute(r => ({ ...r, stops: r.stops.filter((_, i) => i !== idx) }));
+
+  const currentPackages = numContainers === 0 ? (packagesData.truck || []) : (packagesData[activeContainerIndex] || []);
 
   const addPackage = () => {
     if (!newPkg.name || !newPkg.width || !newPkg.height || !newPkg.depth || !newPkg.weight) {
-      alert("Missing Information: Please ensure all package dimensions and weight are filled out.");
+      alert("Missing Information");
       return;
     }
-    
-    // 1. Verify single package dimension is not intrinsically larger than the container
-    const bDims = [Number(newPkg.width), Number(newPkg.height), Number(newPkg.depth)].sort((a,b)=>b-a);
-    const cDims = [Number(container.width), Number(container.height), Number(container.depth)].sort((a,b)=>b-a);
-    if (bDims[0] > cDims[0] || bDims[1] > cDims[1] || bDims[2] > cDims[2]) {
-      alert(`Validation Warning: The box "${newPkg.name}" (${newPkg.width}x${newPkg.height}x${newPkg.depth}cm) is strictly larger than the container dimensions. It cannot possibly fit and will not be accepted.`);
-      return;
-    }
-
-    const count = parseInt(pkgCount) || 1;
-    
-    // 2. Verify total weight constraint
-    const currentWeight = packages.reduce((sum, p) => sum + p.weight, 0);
-    const newAddedWeight = Number(newPkg.weight) * count;
-    if (currentWeight + newAddedWeight > container.maxWeight) {
-      alert(`Capacity Warning: Adding ${count}x "${newPkg.name}" would add ${newAddedWeight}kg, exceeding the total container max weight of ${container.maxWeight}kg (Currently at ${currentWeight}kg).`);
-      return;
-    }
-
-    const newPackages = [];
-    
-    for (let i = 0; i < count; i++) {
-        const pkg = {
-          ...newPkg,
-          id: `p${Date.now()}_${i}`,
-          width: +newPkg.width, height: +newPkg.height,
-          depth: +newPkg.depth, weight: +newPkg.weight,
-          priority: +newPkg.priority,
-          color: ITEM_COLORS[(packages.length + i) % ITEM_COLORS.length],
-        };
-        newPackages.push(pkg);
-    }
-    
-    setPackages((p) => [...p, ...newPackages]);
-    setNewPkg({ ...STANDARD_BOXES[0] });
-    setPkgCount(1);
-    setResult(null); // Clear optimized view because input changed
+    const newPkgItem = {
+      ...newPkg,
+      id: `p${Date.now()}`,
+      width: +newPkg.width, height: +newPkg.height,
+      depth: +newPkg.depth, weight: +newPkg.weight,
+      color: ITEM_COLORS[(currentPackages.length) % ITEM_COLORS.length],
+    };
+    setPackagesData(prev => ({
+      ...prev,
+      [numContainers === 0 ? "truck" : activeContainerIndex]: [...(prev[numContainers === 0 ? "truck" : activeContainerIndex] || []), newPkgItem]
+    }));
   };
 
   const removePackage = (id) => {
-    setPackages((p) => p.filter((x) => x.id !== id));
-    setResult(null); // Clear optimized view because input changed
+    setPackagesData(prev => ({
+      ...prev,
+      [numContainers === 0 ? "truck" : activeContainerIndex]: prev[numContainers === 0 ? "truck" : activeContainerIndex].filter(p => p.id !== id)
+    }));
   };
 
-  const run = async () => {
+  const runOptimization = async () => {
     setLoading("optimize", true);
     try {
-      const res = await optimizeLoad(container, packages, options);
-      // Assign colors if missing
-      res.packing.placed.forEach((it, i) => {
-        if (!it.color) it.color = ITEM_COLORS[i % ITEM_COLORS.length];
-      });
-      setResult(res);
-      setPackResult(res);
-      if (res.carbon) setCarbonReport(res.carbon);
+      const truckDim = TRUCK_DIMENSIONS[truckType];
+      
+      if (numContainers > 0) {
+        const containerItems = [];
+        let activeContainerRes = null;
+
+        for (let i = 0; i < numContainers; i++) {
+          const pkgs = packagesData[i] || [];
+          const res = await optimizeLoad(containerBus, pkgs, options);
+          
+          if (i === activeContainerIndex) activeContainerRes = res;
+
+          containerItems.push({
+            ...containerBus,
+            id: `container_${i}`,
+            name: `Container ${i+1}`,
+            weight: res.packing.weightUsed,
+            color: "rgba(0, 229, 255, 0.1)",
+            isContainer: true
+          });
+        }
+        
+        const truckRes = await optimizeLoad(truckDim, containerItems, options);
+        setGlobalResult(truckRes);
+        setLocalResult(activeContainerRes);
+        setPackResult(truckRes);
+      } else {
+        const res = await optimizeLoad(truckDim, packagesData.truck || [], options);
+        setGlobalResult(res);
+        setLocalResult(null);
+        setPackResult(res);
+      }
     } catch (e) {
-      alert("Optimization error: " + e.message);
+      console.error(e);
     } finally {
       setLoading("optimize", false);
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="fade-up">
-        <div className="font-mono text-xs mb-2" style={{ color: "#00e5ff", letterSpacing: "0.13em" }}>— CORE MODULE</div>
-        <h1 className="font-syne font-extrabold text-4xl tracking-tight mb-2">Load Optimizer</h1>
-        <p style={{ color: "rgba(238,242,255,0.45)", fontSize: "0.95rem" }}>
-          3D bin packing with priority, weight, and fragility constraints.
-        </p>
-      </div>
+  useEffect(() => {
+    runOptimization();
+  }, [truckType, numContainers, containerBus, packagesData, activeContainerIndex]);
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Container Config */}
-        <div className="glass rounded-xl p-5">
-          <div className="font-mono text-xs mb-4" style={{ color: "#00e5ff", letterSpacing: "0.1em" }}>CONTAINER SPECS</div>
-          <div className="grid grid-cols-2 gap-3">
-            {["width","height","depth"].map((k) => (
-              <div key={k}>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: "rgba(238,242,255,0.5)" }}>
-                  {k.toUpperCase()} (cm)
-                </label>
-                <input type="number" value={container[k]}
-                  onChange={(e) => { setContainer({ ...container, [k]: +e.target.value }); setResult(null); }}
-                  className="w-full px-3 py-2 rounded-lg text-sm font-mono"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "rgba(238,242,255,0.5)" }}>
-                MAX WEIGHT (kg)
-              </label>
-              <input type="number" value={container.maxWeight}
-                onChange={(e) => { setContainer({ ...container, maxWeight: +e.target.value }); setResult(null); }}
-                className="w-full px-3 py-2 rounded-lg text-sm font-mono"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
-            </div>
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-screen pb-12 fade-up">
+      {/* Sidebar Controls (4 cols) */}
+      <div className="xl:col-span-4 space-y-6">
+        <div className="px-2">
+          <div className="font-mono text-[10px] text-cyan-400 mb-1 tracking-[0.25em] font-bold uppercase">— CORE ENGINE v2</div>
+          <h1 className="font-syne font-extrabold text-3xl tracking-tight leading-none mb-2">Simulate Load</h1>
+          <p className="text-[12px] text-white/30 font-medium leading-relaxed">Hierarchical 3D packing simulation for multi-modal logistics.</p>
+        </div>
+
+        {/* Route Card */}
+        <div className="glass rounded-2xl p-6 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+             <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_var(--cyan)]" />
+             <span className="text-[10px] font-mono font-bold text-white/50 tracking-widest uppercase">Route Mapping</span>
           </div>
-          {/* Route options */}
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            {[
-              { k:"truckType", opts:["mini","medium","large","jumbo"], label:"TRUCK TYPE" },
-              { k:"fuelType",  opts:["diesel","petrol","cng","electric"], label:"FUEL" },
-              { k:"routeKey",  opts:["pune-mumbai","mumbai-delhi","bangalore-chennai","hyderabad-pune","delhi-jaipur"], label:"ROUTE" },
-            ].map(({ k, opts, label }) => (
-              <div key={k}>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: "rgba(238,242,255,0.5)" }}>{label}</label>
-                <select value={options[k]} onChange={(e) => {
-                    const val = e.target.value;
-                    setOptions({ ...options, [k]: val });
-                    if (k === "truckType") setContainer(TRUCK_DIMENSIONS[val]);
-                    setResult(null); // Clear 3D view because truck config changed
-                  }}
-                  className="w-full px-3 py-2 rounded-lg text-xs"
-                  style={{ background: "#0e1424", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }}>
-                  {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+          <div className="space-y-3">
+             <div className="relative">
+                <span className="absolute left-3 top-3 text-cyan-400/40 text-[10px]">📍</span>
+                <select value={route.source} onChange={e => setRoute({...route, source: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 pl-8 text-sm outline-none focus:border-cyan-400/40 appearance-none cursor-pointer">
+                   {CITIES.map(c => <option key={c}>{c}</option>)}
                 </select>
-              </div>
-            ))}
+             </div>
+             {route.stops.map((stop, i) => (
+                <div key={i} className="flex gap-2 group relative">
+                   <span className="absolute left-3 top-3 text-amber-400/40 text-[10px]">⊙</span>
+                   <select value={stop} onChange={e => updateStop(e.target.value, i)} className="flex-1 bg-white/5 border border-white/10 rounded-xl p-2.5 pl-8 text-sm outline-none focus:border-cyan-400/40 appearance-none cursor-pointer">
+                      <option value="">Select Stop...</option>
+                      {CITIES.map(c => <option key={c}>{c}</option>)}
+                   </select>
+                   <button onClick={() => removeStop(i)} className="text-red-400/30 hover:text-red-400 transition-colors px-2 text-xs">✕</button>
+                </div>
+             ))}
+             <button onClick={addStop} className="w-full py-2 border border-dashed border-cyan-400/20 rounded-xl text-[10px] text-cyan-400 font-mono hover:bg-cyan-400/5 transition-all uppercase tracking-tighter">
+                + Add Intermediate Hub
+             </button>
+             <div className="relative">
+                <span className="absolute left-3 top-3 text-green-400/40 text-[10px]">🏁</span>
+                <select value={route.destination} onChange={e => setRoute({...route, destination: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 pl-8 text-sm outline-none focus:border-cyan-400/40 appearance-none cursor-pointer">
+                   {CITIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+             </div>
           </div>
         </div>
 
-        {/* Package list */}
-        <div className="glass rounded-xl p-5">
-          <div className="font-mono text-xs mb-4" style={{ color: "#ffb800", letterSpacing: "0.1em" }}>PACKAGES ({packages.length})</div>
-          <div className="space-y-2 max-h-48 overflow-y-auto mb-4">
-            {packages.map((pkg, i) => (
-              <div key={pkg.id} className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div className="w-3 h-3 rounded-sm flex-shrink-0"
-                  style={{ background: pkg.color || ITEM_COLORS[i % ITEM_COLORS.length] }} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{pkg.name}</div>
-                  <div className="font-mono text-xs" style={{ color: "rgba(238,242,255,0.35)" }}>
-                    {pkg.width}×{pkg.height}×{pkg.depth}cm · {pkg.weight}kg
-                    {pkg.fragile && " · 🔴 FRAGILE"}
-                    {" · P" + pkg.priority}
-                  </div>
-                </div>
-                <button onClick={() => removePackage(pkg.id)}
-                  className="text-xs px-2 py-1 rounded" style={{ color: "#ff4d6d", background: "rgba(255,77,109,0.08)" }}>✕</button>
-              </div>
+        {/* Vehicle Selection */}
+        <div className="glass rounded-2xl p-6 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+             <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_var(--amber)]" />
+             <span className="text-[10px] font-mono font-bold text-white/50 tracking-widest uppercase">Vehicle Details</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(TRUCK_DIMENSIONS).map(([type, d]) => (
+              <button key={type} onClick={() => setTruckType(type)}
+                className={`card-v2 ${truckType === type ? "selected" : ""}`}>
+                <div className="text-[11px] font-bold uppercase mb-0.5">{type}</div>
+                <div className="text-[9px] text-white/30 font-mono italic">{d.width}x{d.height}x{d.depth}</div>
+              </button>
             ))}
           </div>
-          {/* Add package form */}
-          <div className="pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-            <div className="flex justify-between items-center mb-3">
-              <div className="font-mono text-xs" style={{ color: "rgba(238,242,255,0.3)" }}>ADD PACKAGE</div>
-              <select onChange={(e) => handleBoxSelect(e.target.value)}
-                className="px-2 py-1 rounded text-xs transition-colors hover:bg-opacity-20"
-                style={{ background: "rgba(255,184,0,0.1)", border: "1px solid rgba(255,184,0,0.25)", color: "#ffb800", outline: "none", cursor: "pointer" }}>
-                <option value="" disabled style={{display: 'none'}}>Choose standard box...</option>
-                {STANDARD_BOXES.map((b, i) => (
-                  <option key={i} value={i} style={{background: "#0e1424", color: "#eef2ff"}}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <input placeholder="Name" value={newPkg.name}
-                onChange={(e) => setNewPkg({ ...newPkg, name: e.target.value })}
-                className="px-2.5 py-2 rounded-lg text-sm col-span-2"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
-              {["width","height","depth","weight"].map((k) => (
-                <input key={k} type="number" placeholder={k}
-                  value={newPkg[k]} onChange={(e) => setNewPkg({ ...newPkg, [k]: e.target.value })}
-                  className="px-2.5 py-2 rounded-lg text-sm font-mono"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
+          <div className="pt-2">
+             <label className="text-[10px] text-white/30 block mb-2 font-mono tracking-widest uppercase">Container Units</label>
+             <div className="flex items-center gap-3">
+                <button onClick={() => setNumContainers(Math.max(0, numContainers-1))} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-400/40 transition-all text-xl text-white/40">−</button>
+                <div className="flex-1 h-10 bg-cyan-400/10 border border-cyan-400/30 rounded-xl flex items-center justify-center font-syne font-black text-xl text-cyan-400">{numContainers}</div>
+                <button onClick={() => setNumContainers(Math.min(6, numContainers+1))} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-400/40 transition-all text-xl text-white/40">+</button>
+             </div>
+          </div>
+        </div>
+
+        {/* Cargo Management */}
+        <div className="glass rounded-2xl p-6 flex flex-col max-h-[500px]">
+          <div className="flex items-center gap-2 mb-4">
+             <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_var(--violet)]" />
+             <span className="text-[10px] font-mono font-bold text-white/50 tracking-widest uppercase">Cargo Loadout</span>
+          </div>
+          
+          {numContainers > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-4 mb-2 custom-scrollbar">
+              {[...Array(numContainers)].map((_, i) => (
+                <button key={i} onClick={() => setActiveContainerIndex(i)}
+                  className={`px-3 py-2 rounded-xl text-[10px] whitespace-nowrap transition-all border font-bold ${activeContainerIndex === i ? "bg-violet-400 text-black border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.3)]" : "bg-white/5 text-white/40 border-white/5 hover:border-white/20"}`}>
+                  CONT {i+1}
+                </button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 mt-3">
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" checked={newPkg.fragile}
-                    onChange={(e) => setNewPkg({ ...newPkg, fragile: e.target.checked })} />
-                  <span style={{ color: "rgba(238,242,255,0.6)" }}>Fragile</span>
-                </label>
-                <select value={newPkg.priority} onChange={(e) => setNewPkg({ ...newPkg, priority: +e.target.value })}
-                  className="px-2 py-1 rounded text-xs"
-                  style={{ background: "#0e1424", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff" }}>
-                  <option value={1}>Priority 1 (High)</option>
-                  <option value={2}>Priority 2 (Med)</option>
-                  <option value={3}>Priority 3 (Low)</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs" style={{ color: "rgba(238,242,255,0.5)" }}>QTY:</span>
-                <input type="number" min="1" value={pkgCount} onChange={(e) => setPkgCount(e.target.value)}
-                  className="px-2 py-1 w-16 rounded-lg text-sm font-mono text-center"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
-              </div>
+          )}
+
+          <div className="bg-white/3 border border-white/5 rounded-2xl p-4 space-y-3 mb-4">
+            <div className="flex justify-between items-center text-[9px] font-mono text-white/20 uppercase tracking-widest">
+              <span>Quick Add</span>
+              <select onChange={(e) => setNewPkg(STANDARD_BOXES[e.target.value])} className="bg-transparent border-none text-violet-400 outline-none cursor-pointer">
+                <option value="" disabled>Presets...</option>
+                {STANDARD_BOXES.map((b, i) => <option key={i} value={i}>{b.name}</option>)}
+              </select>
             </div>
-            <button onClick={addPackage}
-              className="w-full py-2 rounded-lg text-sm font-bold transition-all"
-              style={{ background: "rgba(255,184,0,0.1)", border: "1px solid rgba(255,184,0,0.25)", color: "#ffb800" }}>
-              + Add Package
+            <input placeholder="Item Label" value={newPkg.name} onChange={e => setNewPkg({...newPkg, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs outline-none focus:border-violet-400/30 transition-all" />
+            <div className="grid grid-cols-4 gap-2">
+              {["width","height","depth","weight"].map(k => (
+                <div key={k} className="space-y-1">
+                  <div className="text-[7px] text-white/20 font-bold uppercase">{k}</div>
+                  <input type="number" value={newPkg[k]} onChange={e => setNewPkg({...newPkg, [k]: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-[10px] outline-none font-mono" />
+                </div>
+              ))}
+            </div>
+            <button onClick={addPackage} className="w-full py-3 bg-violet-400 text-black text-[11px] font-black rounded-xl hover:shadow-[0_0_20px_rgba(167,139,250,0.4)] transition-all uppercase tracking-tighter">
+              Commit To {numContainers > 0 ? `Container ${activeContainerIndex + 1}` : "Truck"}
             </button>
           </div>
-        </div>
-      </div>
 
-      {/* Run button */}
-      <div className="flex justify-center">
-        <button onClick={run} disabled={busy}
-          className="px-10 py-4 rounded-xl font-syne font-bold text-lg transition-all"
-          style={{
-            background: busy ? "rgba(0,229,255,0.1)" : "linear-gradient(135deg,#00c8e6,#00e5ff)",
-            color: busy ? "#00e5ff" : "#030810",
-            boxShadow: busy ? "none" : "0 4px 24px rgba(0,229,255,0.3)",
-            cursor: busy ? "not-allowed" : "pointer",
-          }}>
-          {busy ? "⟳ Running AI Optimizer..." : "◈ Run 3D Optimization"}
-        </button>
-      </div>
-
-      {/* Results */}
-      {result && (
-        <div className="space-y-5 fade-up">
-          {/* Metrics row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label:"EFFICIENCY",  v: result.packing.efficiency,   unit:"%",  color:"#00e5ff" },
-              { label:"DEAD SPACE",  v: result.packing.deadSpace,    unit:"%",  color:"#ff4d6d" },
-              { label:"PLACED",      v: result.packing.placedCount,  unit:"",   color:"#00e676" },
-              { label:"WEIGHT USED", v: result.packing.weightUsed,   unit:"kg", color:"#ffb800" },
-            ].map((m) => (
-              <div key={m.label} className="glass rounded-xl p-4 text-center">
-                <div className="font-syne font-extrabold text-3xl" style={{ color: m.color }}>{m.v}{m.unit}</div>
-                <div className="font-mono text-xs mt-1" style={{ color: "rgba(238,242,255,0.35)", letterSpacing: "0.08em" }}>{m.label}</div>
+          <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
+            {currentPackages.map(pkg => (
+              <div key={pkg.id} className="flex items-center gap-3 bg-white/3 border border-white/5 rounded-xl p-2.5 group hover:bg-white/5 transition-colors">
+                <div className="w-2 h-2 rounded-full" style={{ background: pkg.color }} />
+                <div className="flex-1 text-[11px] font-medium truncate">{pkg.name}</div>
+                <div className="text-[9px] text-white/30 font-mono tracking-tighter">{pkg.width}×{pkg.height}×{pkg.depth} cm</div>
+                <button onClick={() => removePackage(pkg.id)} className="text-red-400/10 group-hover:text-red-400 transition-colors px-1 text-sm">✕</button>
               </div>
             ))}
           </div>
-
-          {/* 3D Viewer */}
-          <div className="glass rounded-xl p-4">
-            <div className="font-mono text-xs mb-3" style={{ color: "#00e5ff", letterSpacing: "0.1em" }}>3D CONTAINER VIEW</div>
-            <PackingViewer3D placed={result.packing.placed} container={container} label={`${result.packing.placedCount} items placed · ${result.packing.efficiency}% efficient`} />
-          </div>
-
-          {/* Efficiency bars */}
-          <div className="glass rounded-xl p-5">
-            <div className="font-mono text-xs mb-4" style={{ color: "#00e5ff", letterSpacing: "0.1em" }}>OPTIMIZATION BREAKDOWN</div>
-            <div className="space-y-4">
-              <EfficiencyBar value={62}                        color="#ff4d6d" label="Before Optimization" />
-              <EfficiencyBar value={result.packing.efficiency} color="#00e5ff" label="After Optimization" />
-              <EfficiencyBar value={75}                        color="#ffb800" label="Industry Average" />
-            </div>
-          </div>
-
-          {/* Unplaced */}
-          {result.packing.unplaced?.length > 0 && (
-            <div className="rounded-xl p-4" style={{ background: "rgba(255,77,109,0.06)", border: "1px solid rgba(255,77,109,0.2)" }}>
-              <div className="font-mono text-xs mb-3" style={{ color: "#ff4d6d", letterSpacing: "0.1em" }}>UNPLACED CAPACITY WARNINGS</div>
-              <div className="space-y-2">
-                {Object.values(result.packing.unplaced.reduce((acc, u) => {
-                  const key = `${u.name}-${u.reason}`;
-                  if (!acc[key]) acc[key] = { name: u.name, reason: u.reason, unplacedCount: 0 };
-                  acc[key].unplacedCount++;
-                  return acc;
-                }, {})).map((group, idx) => {
-                  const totalAttempted = packages.filter(p => p.name === group.name).length;
-                  const placedCount = totalAttempted - group.unplacedCount;
-                  return (
-                    <div key={idx} className="flex flex-col sm:flex-row justify-between text-sm py-2 border-b border-red-500/10 last:border-0">
-                      <div>
-                        <span className="font-bold">{group.name}</span> 
-                        <span className="text-xs ml-2 px-2 py-0.5 rounded-md" style={{ background: "rgba(255,77,109,0.15)", color: "#ff4d6d" }}>
-                          {group.unplacedCount} Rejected
-                        </span>
-                      </div>
-                      <span className="font-mono text-xs text-right mt-1 sm:mt-0" style={{ color: "#ff4d6d" }}>
-                        {placedCount > 0 
-                          ? `Only ${placedCount} out of ${totalAttempted} can be loaded. ${group.reason}` 
-                          : `0 out of ${totalAttempted} loaded. ${group.reason}`
-                        }
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* AI Suggestions */}
-          {result.packing.deadSpace > 10 && (
-            <div className="glass rounded-xl p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="font-mono text-xs" style={{ color: "#a78bfa", letterSpacing: "0.1em" }}>AI SUGGESTIONS</div>
-                <div className="font-mono text-xs px-2.5 py-1 rounded-full"
-                  style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)", color: "#a78bfa" }}>✦ SMART PACK</div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {[
-                  { ico:"📐", title:"Stack small boxes vertically", desc:"Reduces floor footprint by ~34% and stabilises items above." },
-                  { ico:"⚖️", title:"Redistribute medium boxes", desc:"Balance weight distribution, cutting fuel consumption ~8%." },
-                  { ico:"↑",  title:"Utilise upper container space", desc:"Lightweight items shifted upward recover 26% unused volume." },
-                ].map((s, i) => (
-                  <div key={i} className="flex gap-3 p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <span className="text-lg flex-shrink-0">{s.ico}</span>
-                    <div>
-                      <div className="text-sm font-semibold mb-1">{s.title}</div>
-                      <div className="text-xs" style={{ color: "rgba(238,242,255,0.45)" }}>{s.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
-      )}
+      </div>
+
+      {/* Main Simulators Area (8 cols) */}
+      <div className="xl:col-span-8 space-y-6">
+        
+        {/* Route Strip */}
+        <div className="glass rounded-[1.5rem] p-4 flex items-center justify-between shadow-xl overflow-hidden relative">
+           <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+           <div className="flex items-center gap-6 overflow-x-auto whitespace-nowrap custom-scrollbar">
+              <div className="flex items-center gap-3">
+                 <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_10px_var(--cyan)]" />
+                 <span className="text-sm font-syne font-bold text-white/90">{route.source}</span>
+              </div>
+              {route.stops.map((s, i) => s && (
+                 <React.Fragment key={i}>
+                    <span className="text-white/10 font-mono text-xs">→</span>
+                    <div className="flex items-center gap-3">
+                       <div className="w-2 h-2 rounded-full bg-amber-400" />
+                       <span className="text-sm font-syne font-bold text-white/60">{s}</span>
+                    </div>
+                 </React.Fragment>
+              ))}
+              <span className="text-white/10 font-mono text-xs">→</span>
+              <div className="flex items-center gap-3">
+                 <div className="w-2 h-2 rounded-full bg-green-400" />
+                 <span className="text-sm font-syne font-bold text-white/90">{route.destination}</span>
+              </div>
+           </div>
+           <div className="pl-6 border-l border-white/10 ml-6 hidden md:block">
+              <div className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest font-bold">Logistics Hub Status</div>
+              <div className="text-xs font-mono text-white/40 uppercase">Calculating Capacity...</div>
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[calc(100vh-250px)]">
+           {/* Global Fleet View */}
+           <div className="glass rounded-[2rem] flex flex-col relative overflow-hidden group border-b-4 border-cyan-400/20">
+              <div className="p-6 pb-2">
+                 <div className="font-mono text-[9px] text-cyan-400 tracking-[0.4em] font-bold uppercase mb-1">Global Fleet View</div>
+                 <h3 className="font-syne font-extrabold text-xl text-white/90 italic uppercase">Vehicle Loadout</h3>
+              </div>
+              
+              <div className="flex-1 bg-[#07090f] relative mt-2">
+                 <PackingViewer3D 
+                    container={TRUCK_DIMENSIONS[truckType]}
+                    placed={globalResult?.packing?.placed || []}
+                  />
+              </div>
+
+              {/* Stats Bar V2 */}
+              <div className="stats-bar">
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">Efficiency</div>
+                    <div className="text-lg font-syne font-extrabold text-cyan-400">{globalResult?.packing?.efficiency || 0}%</div>
+                 </div>
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">Entities</div>
+                    <div className="text-lg font-syne font-extrabold text-white">{globalResult?.packing?.placedCount || 0}</div>
+                 </div>
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">Total kg</div>
+                    <div className="text-lg font-syne font-extrabold text-amber-500">{globalResult?.packing?.weightUsed || 0}</div>
+                 </div>
+              </div>
+           </div>
+
+           {/* Local Cargo View */}
+           <div className="glass rounded-[2rem] flex flex-col relative overflow-hidden group border-b-4 border-violet-400/20">
+              <div className="p-6 pb-2">
+                 <div className="font-mono text-[9px] text-violet-400 tracking-[0.4em] font-bold uppercase mb-1">Local Cargo View</div>
+                 <h3 className="font-syne font-extrabold text-xl text-white/90 italic uppercase">
+                    {numContainers > 0 ? `Container ${activeContainerIndex + 1}` : "Indirect Unit"}
+                 </h3>
+              </div>
+              
+              <div className="flex-1 bg-[#07090f] relative mt-2 flex flex-col">
+                 {numContainers > 0 ? (
+                    <PackingViewer3D 
+                      container={containerBus}
+                      placed={localResult?.packing?.placed || []}
+                    />
+                 ) : (
+                    <div className="flex-1 flex items-center justify-center flex-col opacity-10">
+                       <span className="text-6xl mb-4">⊙</span>
+                       <span className="text-[10px] font-mono uppercase tracking-[0.4em]">Unit Bypassed</span>
+                    </div>
+                 )}
+              </div>
+
+              {/* Stats Bar V2 Local */}
+              <div className="stats-bar border-violet-400/10">
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">Local Eff.</div>
+                    <div className="text-lg font-syne font-extrabold text-violet-400">{localResult?.packing?.efficiency || 0}%</div>
+                 </div>
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">Dead Space</div>
+                    <div className="text-lg font-syne font-extrabold text-red-500">{localResult ? 100 - localResult.packing.efficiency : 100}%</div>
+                 </div>
+                 <div className="stat-item">
+                    <div className="text-[8px] text-white/20 font-bold mb-0.5 font-mono uppercase tracking-widest">KG Used</div>
+                    <div className="text-lg font-syne font-extrabold text-white">{localResult?.packing?.weightUsed || 0}</div>
+                 </div>
+              </div>
+           </div>
+        </div>
+      </div>
     </div>
   );
 }
+
+
