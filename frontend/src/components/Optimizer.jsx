@@ -180,6 +180,17 @@ export default function Optimizer() {
 
   const isContainerOverloaded = numContainers > 0 && globalResult?.packing?.placedCount !== undefined && globalResult.packing.placedCount < numContainers;
 
+  const getHubStatus = () => {
+     if (busy) return { text: "CALCULATING CAPACITY...", color: "text-amber-400" };
+     if (isContainerOverloaded) return { text: "CAPACITY OVERLOADED", color: "text-red-400" };
+     if (numContainers === 0 && globalResult?.packing?.placedCount !== undefined && globalResult.packing.placedCount < (packagesData.truck?.length || 0)) {
+        return { text: "CAPACITY WARNING", color: "text-amber-400" };
+     }
+     return { text: "OPTIMAL ROUTE READY", color: "text-green-400" };
+  };
+
+  const hubStatus = getHubStatus();
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-screen pb-12 fade-up">
       {/* Sidebar Controls (4 cols) */}
@@ -377,29 +388,36 @@ export default function Optimizer() {
         {/* Route Strip */}
         <div className="glass rounded-[1.5rem] p-4 flex items-center justify-between shadow-xl overflow-hidden relative">
            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
-           <div className="flex items-center gap-6 overflow-x-auto whitespace-nowrap custom-scrollbar">
-              <div className="flex items-center gap-3">
+           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar flex-1 pr-6">
+              <div className="flex items-center gap-3 shrink-0">
                  <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_10px_var(--cyan)]" />
                  <span className="text-sm font-syne font-bold text-white/90">{route.source}</span>
               </div>
               {route.stops.map((s, i) => s && (
                  <React.Fragment key={i}>
-                    <span className="text-white/10 font-mono text-xs">→</span>
-                    <div className="flex items-center gap-3">
-                       <div className="w-2 h-2 rounded-full bg-amber-400" />
-                       <span className="text-sm font-syne font-bold text-white/60">{s}</span>
+                    <div className={`h-[2px] min-w-[30px] flex-1 mx-2 bg-gradient-to-r ${i === 0 ? 'from-cyan-400/30' : 'from-amber-400/30'} to-amber-400/30 relative overflow-hidden rounded-full`}>
+                       <div className="absolute top-0 left-0 h-full w-full bg-white/30 translate-x-[-100%] animate-[slideRight_1.5s_linear_infinite]" />
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                       <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_10px_var(--amber)]" />
+                       <span className="text-sm font-syne font-bold text-white/90">{s}</span>
                     </div>
                  </React.Fragment>
               ))}
-              <span className="text-white/10 font-mono text-xs">→</span>
-              <div className="flex items-center gap-3">
-                 <div className="w-2 h-2 rounded-full bg-green-400" />
+              <div className={`h-[2px] min-w-[30px] flex-1 mx-2 bg-gradient-to-r ${route.stops.filter(s=>s).length > 0 ? 'from-amber-400/30' : 'from-cyan-400/30'} to-green-400/30 relative overflow-hidden rounded-full`}>
+                 <div className="absolute top-0 left-0 h-full w-full bg-white/30 translate-x-[-100%] animate-[slideRight_1.5s_linear_infinite]" />
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                 <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_10px_var(--green)]" />
                  <span className="text-sm font-syne font-bold text-white/90">{route.destination}</span>
               </div>
            </div>
-           <div className="pl-6 border-l border-white/10 ml-6 hidden md:block">
+           
+           <div className="pl-6 border-l border-white/10 ml-6 hidden md:block shrink-0 min-w-[140px]">
               <div className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest font-bold">Logistics Hub Status</div>
-              <div className="text-xs font-mono text-white/40 uppercase">Calculating Capacity...</div>
+              <div className={`text-[11px] font-mono font-bold uppercase transition-colors duration-500 ${hubStatus.color}`}>
+                 {hubStatus.text}
+              </div>
            </div>
         </div>
 

@@ -66,6 +66,11 @@ select option {
   50% { opacity: 0.2; }
 }
 
+@keyframes slideRight {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
 /* Truck & Container Cards */
 .card-v2 {
   padding: 16px;
