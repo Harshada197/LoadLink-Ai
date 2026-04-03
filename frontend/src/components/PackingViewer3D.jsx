@@ -73,15 +73,19 @@ export default function PackingViewer3D({ placed = [], container, label, showEmp
         scene.add(gridHelper);
       }
 
-      // Place items
       for (const item of placed) {
-        const geo = new THREE.BoxGeometry(item.width, item.height, item.depth);
+        // Render geometry slightly smaller than actual mathematical dimensions 
+        // to create a visible 'air gap' preventing boxes from visually fusing together!
+        const geo = new THREE.BoxGeometry(
+          Math.max(0.1, item.width - 0.5), 
+          Math.max(0.1, item.height - 0.5), 
+          Math.max(0.1, item.depth - 0.5)
+        );
         const color = new THREE.Color(item.color || "#00e5ff");
         const mat = new THREE.MeshPhongMaterial({
           color,
-          transparent: true,
-          opacity: 0.85,
-          shininess: 40,
+          transparent: false,
+          shininess: 60,
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(

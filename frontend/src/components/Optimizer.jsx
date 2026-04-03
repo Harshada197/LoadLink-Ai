@@ -16,6 +16,21 @@ const DEFAULT_PACKAGES = [
   { id:"p6", name:"Spare Parts Box",   width:70,  height:60,  depth:90,  weight:30, fragile:false, priority:2 },
 ];
 
+const STANDARD_BOXES = [
+  { name: "[Custom Box]", width: "", height: "", depth: "", weight: "", fragile: false, priority: 2 },
+  { name: "Small Carton", width: 30, height: 30, depth: 30, weight: 5, fragile: false, priority: 3 },
+  { name: "Medium Crate", width: 50, height: 40, depth: 40, weight: 15, fragile: false, priority: 2 },
+  { name: "Large Pallet", width: 100, height: 100, depth: 100, weight: 80, fragile: false, priority: 2 },
+  { name: "Fragile Electronics", width: 60, height: 40, depth: 40, weight: 10, fragile: true, priority: 1 },
+];
+
+const TRUCK_DIMENSIONS = {
+  mini: { width: 180, height: 140, depth: 300, maxWeight: 3000 },
+  medium: { width: 220, height: 150, depth: 450, maxWeight: 6000 },
+  large: { width: 240, height: 160, depth: 600, maxWeight: 10000 },
+  jumbo: { width: 260, height: 200, depth: 1200, maxWeight: 24000 },
+};
+
 function EfficiencyBar({ value, color, label }) {
   return (
     <div>
@@ -37,24 +52,62 @@ export default function Optimizer() {
   const [packages, setPackages] = useState(DEFAULT_PACKAGES);
   const [result, setResult] = useState(null);
   const [options, setOptions] = useState({ truckType: "large", fuelType: "diesel", routeKey: "pune-mumbai" });
-  const [newPkg, setNewPkg] = useState({ name:"", width:"", height:"", depth:"", weight:"", fragile:false, priority:2 });
+  const [newPkg, setNewPkg] = useState(STANDARD_BOXES[0]);
+  const [pkgCount, setPkgCount] = useState(1);
   const busy = isLoading("optimize");
 
-  const addPackage = () => {
-    if (!newPkg.name || !newPkg.width) return;
-    const pkg = {
-      ...newPkg,
-      id: `p${Date.now()}`,
-      width: +newPkg.width, height: +newPkg.height,
-      depth: +newPkg.depth, weight: +newPkg.weight,
-      priority: +newPkg.priority,
-      color: ITEM_COLORS[packages.length % ITEM_COLORS.length],
-    };
-    setPackages((p) => [...p, pkg]);
-    setNewPkg({ name:"", width:"", height:"", depth:"", weight:"", fragile:false, priority:2 });
+  const handleBoxSelect = (idx) => {
+    setNewPkg({ ...STANDARD_BOXES[idx] });
   };
 
-  const removePackage = (id) => setPackages((p) => p.filter((x) => x.id !== id));
+  const addPackage = () => {
+    if (!newPkg.name || !newPkg.width || !newPkg.height || !newPkg.depth || !newPkg.weight) {
+      alert("Missing Information: Please ensure all package dimensions and weight are filled out.");
+      return;
+    }
+    
+    // 1. Verify single package dimension is not intrinsically larger than the container
+    const bDims = [Number(newPkg.width), Number(newPkg.height), Number(newPkg.depth)].sort((a,b)=>b-a);
+    const cDims = [Number(container.width), Number(container.height), Number(container.depth)].sort((a,b)=>b-a);
+    if (bDims[0] > cDims[0] || bDims[1] > cDims[1] || bDims[2] > cDims[2]) {
+      alert(`Validation Warning: The box "${newPkg.name}" (${newPkg.width}x${newPkg.height}x${newPkg.depth}cm) is strictly larger than the container dimensions. It cannot possibly fit and will not be accepted.`);
+      return;
+    }
+
+    const count = parseInt(pkgCount) || 1;
+    
+    // 2. Verify total weight constraint
+    const currentWeight = packages.reduce((sum, p) => sum + p.weight, 0);
+    const newAddedWeight = Number(newPkg.weight) * count;
+    if (currentWeight + newAddedWeight > container.maxWeight) {
+      alert(`Capacity Warning: Adding ${count}x "${newPkg.name}" would add ${newAddedWeight}kg, exceeding the total container max weight of ${container.maxWeight}kg (Currently at ${currentWeight}kg).`);
+      return;
+    }
+
+    const newPackages = [];
+    
+    for (let i = 0; i < count; i++) {
+        const pkg = {
+          ...newPkg,
+          id: `p${Date.now()}_${i}`,
+          width: +newPkg.width, height: +newPkg.height,
+          depth: +newPkg.depth, weight: +newPkg.weight,
+          priority: +newPkg.priority,
+          color: ITEM_COLORS[(packages.length + i) % ITEM_COLORS.length],
+        };
+        newPackages.push(pkg);
+    }
+    
+    setPackages((p) => [...p, ...newPackages]);
+    setNewPkg({ ...STANDARD_BOXES[0] });
+    setPkgCount(1);
+    setResult(null); // Clear optimized view because input changed
+  };
+
+  const removePackage = (id) => {
+    setPackages((p) => p.filter((x) => x.id !== id));
+    setResult(null); // Clear optimized view because input changed
+  };
 
   const run = async () => {
     setLoading("optimize", true);
@@ -95,7 +148,7 @@ export default function Optimizer() {
                   {k.toUpperCase()} (cm)
                 </label>
                 <input type="number" value={container[k]}
-                  onChange={(e) => setContainer({ ...container, [k]: +e.target.value })}
+                  onChange={(e) => { setContainer({ ...container, [k]: +e.target.value }); setResult(null); }}
                   className="w-full px-3 py-2 rounded-lg text-sm font-mono"
                   style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
               </div>
@@ -105,7 +158,7 @@ export default function Optimizer() {
                 MAX WEIGHT (kg)
               </label>
               <input type="number" value={container.maxWeight}
-                onChange={(e) => setContainer({ ...container, maxWeight: +e.target.value })}
+                onChange={(e) => { setContainer({ ...container, maxWeight: +e.target.value }); setResult(null); }}
                 className="w-full px-3 py-2 rounded-lg text-sm font-mono"
                 style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
             </div>
@@ -119,7 +172,12 @@ export default function Optimizer() {
             ].map(({ k, opts, label }) => (
               <div key={k}>
                 <label className="block text-xs font-semibold mb-1.5" style={{ color: "rgba(238,242,255,0.5)" }}>{label}</label>
-                <select value={options[k]} onChange={(e) => setOptions({ ...options, [k]: e.target.value })}
+                <select value={options[k]} onChange={(e) => {
+                    const val = e.target.value;
+                    setOptions({ ...options, [k]: val });
+                    if (k === "truckType") setContainer(TRUCK_DIMENSIONS[val]);
+                    setResult(null); // Clear 3D view because truck config changed
+                  }}
                   className="w-full px-3 py-2 rounded-lg text-xs"
                   style={{ background: "#0e1424", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }}>
                   {opts.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -153,7 +211,17 @@ export default function Optimizer() {
           </div>
           {/* Add package form */}
           <div className="pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-            <div className="font-mono text-xs mb-2" style={{ color: "rgba(238,242,255,0.3)" }}>ADD PACKAGE</div>
+            <div className="flex justify-between items-center mb-3">
+              <div className="font-mono text-xs" style={{ color: "rgba(238,242,255,0.3)" }}>ADD PACKAGE</div>
+              <select onChange={(e) => handleBoxSelect(e.target.value)}
+                className="px-2 py-1 rounded text-xs transition-colors hover:bg-opacity-20"
+                style={{ background: "rgba(255,184,0,0.1)", border: "1px solid rgba(255,184,0,0.25)", color: "#ffb800", outline: "none", cursor: "pointer" }}>
+                <option value="" disabled style={{display: 'none'}}>Choose standard box...</option>
+                {STANDARD_BOXES.map((b, i) => (
+                  <option key={i} value={i} style={{background: "#0e1424", color: "#eef2ff"}}>{b.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input placeholder="Name" value={newPkg.name}
                 onChange={(e) => setNewPkg({ ...newPkg, name: e.target.value })}
@@ -166,19 +234,27 @@ export default function Optimizer() {
                   style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
               ))}
             </div>
-            <div className="flex items-center gap-3 mb-2">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={newPkg.fragile}
-                  onChange={(e) => setNewPkg({ ...newPkg, fragile: e.target.checked })} />
-                <span style={{ color: "rgba(238,242,255,0.6)" }}>Fragile</span>
-              </label>
-              <select value={newPkg.priority} onChange={(e) => setNewPkg({ ...newPkg, priority: +e.target.value })}
-                className="px-2 py-1 rounded text-xs"
-                style={{ background: "#0e1424", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff" }}>
-                <option value={1}>Priority 1 (High)</option>
-                <option value={2}>Priority 2 (Med)</option>
-                <option value={3}>Priority 3 (Low)</option>
-              </select>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 mt-3">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={newPkg.fragile}
+                    onChange={(e) => setNewPkg({ ...newPkg, fragile: e.target.checked })} />
+                  <span style={{ color: "rgba(238,242,255,0.6)" }}>Fragile</span>
+                </label>
+                <select value={newPkg.priority} onChange={(e) => setNewPkg({ ...newPkg, priority: +e.target.value })}
+                  className="px-2 py-1 rounded text-xs"
+                  style={{ background: "#0e1424", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff" }}>
+                  <option value={1}>Priority 1 (High)</option>
+                  <option value={2}>Priority 2 (Med)</option>
+                  <option value={3}>Priority 3 (Low)</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: "rgba(238,242,255,0.5)" }}>QTY:</span>
+                <input type="number" min="1" value={pkgCount} onChange={(e) => setPkgCount(e.target.value)}
+                  className="px-2 py-1 w-16 rounded-lg text-sm font-mono text-center"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#eef2ff", outline: "none" }} />
+              </div>
             </div>
             <button onClick={addPackage}
               className="w-full py-2 rounded-lg text-sm font-bold transition-all"
@@ -240,13 +316,34 @@ export default function Optimizer() {
           {/* Unplaced */}
           {result.packing.unplaced?.length > 0 && (
             <div className="rounded-xl p-4" style={{ background: "rgba(255,77,109,0.06)", border: "1px solid rgba(255,77,109,0.2)" }}>
-              <div className="font-mono text-xs mb-2" style={{ color: "#ff4d6d", letterSpacing: "0.1em" }}>UNPLACED ITEMS</div>
-              {result.packing.unplaced.map((u) => (
-                <div key={u.id} className="flex justify-between text-sm py-1">
-                  <span>{u.name}</span>
-                  <span className="font-mono text-xs" style={{ color: "#ff4d6d" }}>{u.reason}</span>
-                </div>
-              ))}
+              <div className="font-mono text-xs mb-3" style={{ color: "#ff4d6d", letterSpacing: "0.1em" }}>UNPLACED CAPACITY WARNINGS</div>
+              <div className="space-y-2">
+                {Object.values(result.packing.unplaced.reduce((acc, u) => {
+                  const key = `${u.name}-${u.reason}`;
+                  if (!acc[key]) acc[key] = { name: u.name, reason: u.reason, unplacedCount: 0 };
+                  acc[key].unplacedCount++;
+                  return acc;
+                }, {})).map((group, idx) => {
+                  const totalAttempted = packages.filter(p => p.name === group.name).length;
+                  const placedCount = totalAttempted - group.unplacedCount;
+                  return (
+                    <div key={idx} className="flex flex-col sm:flex-row justify-between text-sm py-2 border-b border-red-500/10 last:border-0">
+                      <div>
+                        <span className="font-bold">{group.name}</span> 
+                        <span className="text-xs ml-2 px-2 py-0.5 rounded-md" style={{ background: "rgba(255,77,109,0.15)", color: "#ff4d6d" }}>
+                          {group.unplacedCount} Rejected
+                        </span>
+                      </div>
+                      <span className="font-mono text-xs text-right mt-1 sm:mt-0" style={{ color: "#ff4d6d" }}>
+                        {placedCount > 0 
+                          ? `Only ${placedCount} out of ${totalAttempted} can be loaded. ${group.reason}` 
+                          : `0 out of ${totalAttempted} loaded. ${group.reason}`
+                        }
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
