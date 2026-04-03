@@ -41,7 +41,9 @@ export const fetchMetrics = async () => {
       data: {
         efficiency: res.data.efficiency,
         volume: res.data.volume,
-        objects: res.data.objects
+        objects: res.data.objects,
+        barcodes: res.data.barcodes,
+        a4_measurements: res.data.a4_measurements
       }
     };
   } catch (err) {
@@ -51,7 +53,9 @@ export const fetchMetrics = async () => {
       data: {
         efficiency: 0,
         volume: 0,
-        objects: []
+        objects: [],
+        barcodes: [],
+        a4_measurements: []
       }
     };
   }

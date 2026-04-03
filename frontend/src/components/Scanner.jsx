@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
-import { detectDeadspace } from "../services/api";
+import { detectDeadspace, fetchMetrics } from "../services/api";
 
-const SEVERITY_COLOR = { low:"#00e676", medium:"#ffb800", high:"#ff4d6d", critical:"#ff4d6d" };
+const SEVERITY_COLOR = { low:"#00e676", medium:"#ffb800", high:"#ff4d6d", critical:"#ff4d6d", success:"#00e5ff" };
 
 export default function Scanner() {
   const { setScanResult, setLoading, isLoading, addAlert } = useStore();
@@ -132,14 +132,125 @@ export default function Scanner() {
     return () => cancelAnimationFrame(animRef.current);
   }, [liveMode, toggles, drawFrame]);
 
+  const performYoloScan = async (isManual = false) => {
+      try {
+         const res = await fetchMetrics();
+         const yoloData = res.data;
+         const issues = [];
+         
+         const objects = yoloData.objects || [];
+         const sorted = [...objects].sort((a,b) => b.y - a.y); // Bottom (higher y) is first
+         
+         const sizeVal = { "Small": 1, "Medium": 2, "Large": 3 };
+         
+         const barcodes = yoloData.barcodes || [];
+         const a4_measurements = yoloData.a4_measurements || [];
+         
+         // A4 Hardware Calibration
+         a4_measurements.forEach((cm, i) => {
+             issues.push({
+                 id: `a4_${i}_${Date.now()}`,
+                 title: `📐 A4 CALIBRATION SCALE LOCKED`,
+                 description: `Exact physical bounds detected: ${cm.width_cm}cm x ${cm.height_cm}cm. This item has been laser measured exactly.`,
+                 severity: "success"
+             });
+         });
+         
+         // Object mapping and unauthorized checking
+         objects.forEach((obj, i) => {
+             if (obj.rawLabel && !["box", "suitcase", "refrigerator", "bottle", "keyboard", "lapop"].includes(obj.rawLabel) && obj.rawLabel !== "person") {
+                 issues.push({
+                     id: `auth_violation_${i}_${Date.now()}`,
+                     title: `🚨 UNAUTHORIZED PACKAGE: ${obj.rawLabel.toUpperCase()}`,
+                     description: `The system detected a restricted object (${obj.rawLabel}). Worker must remove it from the loading grid immediately!`,
+                     severity: "critical"
+                 });
+             } else if (obj.rawLabel !== "person") {
+                 issues.push({
+                     id: `yolo_${i}`,
+                     title: `Logged: ${obj.object.toUpperCase()} BOX`,
+                     description: `Dimensions: ${obj.width}x${obj.height}px   Category: ${obj.size.toUpperCase()} Volume class.`,
+                     severity: "low"
+                 });
+             }
+         });
+         
+         // Stacking Violation logic
+         for (let i = 0; i < sorted.length; i++) {
+             for (let j = i + 1; j < sorted.length; j++) {
+                 const lower = sorted[i]; // physically below
+                 const higher = sorted[j]; // physically above
+                 
+                 const lowerCX = lower.x;
+                 const higherCX = higher.x;
+                 // Allow some pixels of leeway before considering it stacked horizontally
+                 const xOverlap = Math.abs(lowerCX - higherCX) < ((lower.width/2) + (higher.width/2) - 30);
+                 
+                 if ("size" in lower && "size" in higher && xOverlap) {
+                     if (sizeVal[higher.size] > sizeVal[lower.size]) {
+                         issues.push({
+                             id: `stack_violation_${i}_${j}_${Date.now()}`,
+                             title: `❌ ALARM: PLACEMENT VIOLATION`,
+                             description: `Worker stacked a ${higher.size.toUpperCase()} load on top of a ${lower.size.toUpperCase()} package! Critical structural hazard detected.`,
+                             severity: "critical"
+                         });
+                         break;
+                     }
+                 }
+             }
+         }
+         
+         // Barcode checking
+         barcodes.forEach((bc, i) => {
+             issues.push({
+                 id: `barcode_${i}_${Date.now()}`,
+                 title: `✅ SCANNED IDENTIFIER: ${bc.data}`,
+                 description: `Successfully registered package barcode (${bc.type}) into the truck manifest.`,
+                 severity: "success"
+             });
+         });
+
+         const yoloResult = {
+             utilization: yoloData.efficiency || 0,
+             issues: issues.sort((a,b) => (a.severity === "critical" ? -1 : 1)), // push criticals to top
+             metrics: { improvementPotential: 5 },
+             recommendations: yoloData.objects.length === 0 ? [{ text: "Position cargo clearly inside frame guidelines." }] : [{ text: `Realtime surveillance active for ${yoloData.objects.length} item(s).` }],
+             emptyPct: Math.max(0, 100 - (yoloData.efficiency || 0))
+         };
+         
+         setResult(yoloResult);
+         setScanResult(yoloResult);
+         
+         if (isManual) {
+             yoloResult.issues?.forEach((a) => addAlert(a));
+         }
+      } catch (e) {
+         if (isManual) alert("Scan error: " + e.message);
+      }
+  };
+
+  useEffect(() => {
+     let interval;
+     if (liveMode) {
+        interval = setInterval(() => {
+           performYoloScan(false);
+        }, 1500); // 1.5 seconds realtime check
+     }
+     return () => clearInterval(interval);
+  }, [liveMode]);
+
   const runScan = async () => {
     setLoading("scan", true);
     try {
-      // Generate a grid from current canvas state (simulated)
-      const res = await detectDeadspace({ frameIndex: frameRef.current });
-      setResult(res.scan);
-      setScanResult(res.scan);
-      res.scan.issues?.forEach((a) => addAlert(a));
+      if (liveMode) {
+         await performYoloScan(true);
+      } else {
+         // Simulate deadspace detection if not live
+         const res = await detectDeadspace({ frameIndex: frameRef.current });
+         setResult(res.scan);
+         setScanResult(res.scan);
+         res.scan.issues?.forEach((a) => addAlert(a));
+      }
     } catch (e) {
       alert("Scan error: " + e.message);
     } finally {
@@ -168,16 +279,22 @@ export default function Scanner() {
               style={{ background: "linear-gradient(to bottom,rgba(0,0,0,0.8),transparent)" }}>
               <div className="flex items-center gap-2 font-mono text-xs" style={{ color: liveMode ? "#ff4d6d" : "#ffb800" }}>
                 <span className="w-2 h-2 rounded-full pulse-dot" style={{ background: liveMode ? "#ff4d6d" : "#ffb800" }} />
-                {liveMode ? "REC LIVE" : "PAUSED"} · 1920×1080
+                {liveMode ? "YOLOv8 LIVE" : "PAUSED"} · 1920×1080
               </div>
               <div className="font-mono text-xs" style={{ color: "rgba(238,242,255,0.3)" }}>
-                FRAME #{frameRef.current}
+                {liveMode ? "AI DIMENSION CAPTURE" : `FRAME #${frameRef.current}`}
               </div>
             </div>
-            <canvas ref={canvasRef} width={560} height={320} style={{ width: "100%", display: "block" }} />
-            <div className="absolute bottom-0 left-0 right-0 px-4 py-3"
+            
+            {liveMode ? (
+               <img src="http://127.0.0.1:5000/video" alt="YOLOv8 Live Stream" className="w-full object-cover relative z-0" style={{ height: 320, display: "block" }} />
+            ) : (
+               <canvas ref={canvasRef} width={560} height={320} style={{ width: "100%", display: "block", filter: "opacity(0.6)" }} />
+            )}
+
+            <div className="absolute bottom-0 left-0 right-0 px-4 py-3 z-10"
               style={{ background: "linear-gradient(to top,rgba(0,0,0,0.85),transparent)", fontFamily: "DM Mono,monospace", fontSize: "0.72rem", color: "rgba(238,242,255,0.5)" }}>
-              🔍 {result ? `Scan complete — ${result.emptyPct}% empty space detected` : "Scanning container for dead space and packing violations..."}
+              🔍 {result ? (liveMode ? `Dimension Sweep complete — AI Detected ${result.issues?.length} object(s)` : `Scan complete — ${result.emptyPct}% empty space detected`) : "Scanning container for dead space and AI Object dimensions..."}
             </div>
           </div>
 
