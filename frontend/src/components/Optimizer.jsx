@@ -31,6 +31,13 @@ const TRUCK_DIMENSIONS = {
   jumbo:  { width: 250, height: 280, depth: 1850, maxWeight: 40000 }, 
 };
 
+const CONTAINER_TYPES = {
+  "20ft Standard": { width: 235, height: 239, depth: 590,  maxWeight: 28000 },
+  "40ft Standard": { width: 235, height: 239, depth: 1203, maxWeight: 28000 },
+  "40ft High Cube":{ width: 235, height: 270, depth: 1203, maxWeight: 30000 },
+  "10ft Mini":     { width: 200, height: 200, depth: 300,  maxWeight: 10000 }
+};
+
 const CITIES = ["Pune", "Mumbai", "Bangalore", "Delhi", "Hyderabad", "Chennai", "Kolkata", "Ahmedabad", "Nashik", "Surat"];
 
 function EfficiencyBar({ value, color, label }) {
@@ -57,7 +64,8 @@ export default function Optimizer() {
   // -- Truck & Containers --
   const [truckType, setTruckType] = useState("large");
   const [numContainers, setNumContainers] = useState(1);
-  const [containerBus, setContainerBus] = useState({ width: 230, height: 230, depth: 580, maxWeight: 5000 });
+  const [containerSpecs, setContainerSpecs] = useState({});
+  const getContainerSpec = (idx) => containerSpecs[idx] || { type: "20ft Standard", source: "", destination: "" };
   
   // -- Packages & Selection --
   const [activeContainerIndex, setActiveContainerIndex] = useState(0);
@@ -95,6 +103,7 @@ export default function Optimizer() {
   const removeStop = (idx) => setRoute(r => ({ ...r, stops: r.stops.filter((_, i) => i !== idx) }));
 
   const currentPackages = numContainers === 0 ? (packagesData.truck || []) : (packagesData[activeContainerIndex] || []);
+  const availableCities = [...new Set([route.source, ...route.stops, route.destination].filter(c => c && c.trim() !== ""))];
 
   const addPackage = () => {
     if (!newPkg.name || !newPkg.width || !newPkg.height || !newPkg.depth || !newPkg.weight) {
@@ -132,14 +141,16 @@ export default function Optimizer() {
 
         for (let i = 0; i < numContainers; i++) {
           const pkgs = packagesData[i] || [];
-          const res = await optimizeLoad(containerBus, pkgs, options);
+          const spec = getContainerSpec(i);
+          const cDim = CONTAINER_TYPES[spec.type] || CONTAINER_TYPES["20ft Standard"];
+          const res = await optimizeLoad(cDim, pkgs, options);
           
           if (i === activeContainerIndex) activeContainerRes = res;
 
           containerItems.push({
-            ...containerBus,
+            ...cDim,
             id: `container_${i}`,
-            name: `Container ${i+1}`,
+            name: `C${i+1} (${spec.source || 'Src'} ➔ ${spec.destination || 'Dst'})`,
             weight: res.packing.weightUsed || 0,
             color: ITEM_COLORS[i % ITEM_COLORS.length],
             isContainer: true
@@ -165,7 +176,9 @@ export default function Optimizer() {
 
   useEffect(() => {
     runOptimization();
-  }, [truckType, numContainers, containerBus, packagesData, activeContainerIndex]);
+  }, [truckType, numContainers, containerSpecs, packagesData, activeContainerIndex, route.source, route.destination]);
+
+  const isContainerOverloaded = numContainers > 0 && globalResult?.packing?.placedCount !== undefined && globalResult.packing.placedCount < numContainers;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-screen pb-12 fade-up">
@@ -232,7 +245,14 @@ export default function Optimizer() {
              <div className="flex items-center gap-3">
                 <button onClick={() => setNumContainers(Math.max(0, numContainers-1))} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-400/40 transition-all text-xl text-white/40">−</button>
                 <div className="flex-1 h-10 bg-cyan-400/10 border border-cyan-400/30 rounded-xl flex items-center justify-center font-syne font-black text-xl text-cyan-400">{numContainers}</div>
-                <button onClick={() => setNumContainers(Math.min(6, numContainers+1))} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-400/40 transition-all text-xl text-white/40">+</button>
+                <button 
+                  onClick={() => !isContainerOverloaded && setNumContainers(Math.min(6, numContainers+1))} 
+                  disabled={isContainerOverloaded}
+                  title={isContainerOverloaded ? "Cannot add more containers: Vehicle capacity exceeded" : ""}
+                  className={`w-10 h-10 rounded-xl bg-white/5 border transition-all text-xl text-white/40 ${isContainerOverloaded ? 'border-red-500/50 opacity-30 cursor-not-allowed text-red-500' : 'border-white/10 hover:border-cyan-400/40'}`}
+                >
+                  +
+                </button>
              </div>
           </div>
         </div>
@@ -252,6 +272,47 @@ export default function Optimizer() {
                   CONT {i+1}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Container Configuration Section */}
+          {numContainers > 0 && (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3 mb-4">
+               <div className="text-[10px] font-mono font-bold text-violet-400 uppercase tracking-widest">Container {activeContainerIndex + 1} Settings</div>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-[8px] text-white/40 uppercase font-bold block mb-1">Type</label>
+                    <select 
+                      className="w-full bg-[#0a0d14] border border-white/20 rounded-lg p-2 text-xs text-white outline-none focus:border-violet-400/40"
+                      value={getContainerSpec(activeContainerIndex).type}
+                      onChange={(e) => setContainerSpecs(prev => ({...prev, [activeContainerIndex]: {...getContainerSpec(activeContainerIndex), type: e.target.value}}))}
+                    >
+                      {Object.keys(CONTAINER_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[8px] text-white/40 uppercase font-bold block mb-1">Source</label>
+                    <select 
+                      className="w-full bg-[#0a0d14] border border-white/20 rounded-lg p-2 text-xs text-white outline-none focus:border-violet-400/40"
+                      value={getContainerSpec(activeContainerIndex).source}
+                      onChange={(e) => setContainerSpecs(prev => ({...prev, [activeContainerIndex]: {...getContainerSpec(activeContainerIndex), source: e.target.value}}))}
+                    >
+                      <option value="">Select...</option>
+                      {availableCities.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[8px] text-white/40 uppercase font-bold block mb-1">Destination</label>
+                    <select 
+                      className="w-full bg-[#0a0d14] border border-white/20 rounded-lg p-2 text-xs text-white outline-none focus:border-violet-400/40"
+                      value={getContainerSpec(activeContainerIndex).destination}
+                      onChange={(e) => setContainerSpecs(prev => ({...prev, [activeContainerIndex]: {...getContainerSpec(activeContainerIndex), destination: e.target.value}}))}
+                    >
+                      <option value="">Select...</option>
+                      {availableCities.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+               </div>
             </div>
           )}
 
@@ -293,6 +354,26 @@ export default function Optimizer() {
       {/* Main Simulators Area (8 cols) */}
       <div className="xl:col-span-8 space-y-6">
         
+        {/* Capacity Warning Strips */}
+        {numContainers > 0 && globalResult?.packing?.placedCount !== undefined && globalResult.packing.placedCount < numContainers && (
+            <div className="glass rounded-[1.5rem] p-4 flex items-center gap-4 shadow-xl border-l-4 border-red-500 bg-red-900/20 fade-up">
+               <span className="text-2xl">⚠️</span>
+               <div>
+                  <h4 className="text-red-400 font-syne font-bold text-sm uppercase">Capacity Overload</h4>
+                  <p className="text-xs text-white/70 font-mono mt-1">The active vehicle is too small. {numContainers - globalResult.packing.placedCount} container(s) could not be loaded.</p>
+               </div>
+            </div>
+        )}
+        {numContainers === 0 && globalResult?.packing?.placedCount !== undefined && globalResult.packing.placedCount < (packagesData.truck?.length || 0) && (
+            <div className="glass rounded-[1.5rem] p-4 flex items-center gap-4 shadow-xl border-l-4 border-amber-500 bg-amber-900/20 fade-up">
+               <span className="text-2xl">⚠️</span>
+               <div>
+                  <h4 className="text-amber-400 font-syne font-bold text-sm uppercase">Capacity Warning</h4>
+                  <p className="text-xs text-white/70 font-mono mt-1">Not all cargo could fit inside the vehicle. {(packagesData.truck?.length || 0) - globalResult.packing.placedCount} item(s) are unplaced.</p>
+               </div>
+            </div>
+        )}
+
         {/* Route Strip */}
         <div className="glass rounded-[1.5rem] p-4 flex items-center justify-between shadow-xl overflow-hidden relative">
            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
@@ -366,7 +447,7 @@ export default function Optimizer() {
               <div className="flex-1 bg-[#07090f] relative mt-2 flex flex-col">
                  {numContainers > 0 ? (
                     <PackingViewer3D 
-                      container={containerBus}
+                      container={CONTAINER_TYPES[getContainerSpec(activeContainerIndex).type] || CONTAINER_TYPES["20ft Standard"]}
                       placed={localResult?.packing?.placed || []}
                     />
                  ) : (

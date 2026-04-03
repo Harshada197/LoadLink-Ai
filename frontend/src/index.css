@@ -39,6 +39,14 @@ body {
 .font-syne { font-family: 'Syne', sans-serif; }
 .font-mono { font-family: 'DM Mono', monospace; }
 
+/* Input & Select overrides for darker/clearer view */
+select option {
+  background-color: var(--bg2);
+  color: #ffffff;
+  font-weight: 600;
+  padding: 8px;
+}
+
 /* ── Components ── */
 .glass {
   background: var(--surface);
