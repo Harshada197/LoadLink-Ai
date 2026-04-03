@@ -25,10 +25,10 @@ const STANDARD_BOXES = [
 ];
 
 const TRUCK_DIMENSIONS = {
-  mini: { width: 200, height: 200, depth: 320, maxWeight: 3000 },
-  medium: { width: 230, height: 240, depth: 500, maxWeight: 6000 },
-  large: { width: 245, height: 260, depth: 650, maxWeight: 10000 },
-  jumbo: { width: 250, height: 280, depth: 1300, maxWeight: 24000 },
+  mini:   { width: 200, height: 210, depth: 320,  maxWeight: 5000  }, 
+  medium: { width: 240, height: 240, depth: 620,  maxWeight: 12000 }, 
+  large:  { width: 245, height: 260, depth: 1250, maxWeight: 24000 }, 
+  jumbo:  { width: 250, height: 280, depth: 1850, maxWeight: 40000 }, 
 };
 
 const CITIES = ["Pune", "Mumbai", "Bangalore", "Delhi", "Hyderabad", "Chennai", "Kolkata", "Ahmedabad", "Nashik", "Surat"];
@@ -140,8 +140,8 @@ export default function Optimizer() {
             ...containerBus,
             id: `container_${i}`,
             name: `Container ${i+1}`,
-            weight: res.packing.weightUsed,
-            color: "rgba(0, 229, 255, 0.1)",
+            weight: res.packing.weightUsed || 0,
+            color: ITEM_COLORS[i % ITEM_COLORS.length],
             isContainer: true
           });
         }
